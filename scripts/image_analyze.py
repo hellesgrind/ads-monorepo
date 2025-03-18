@@ -42,13 +42,7 @@ def detect_text(image: Image.Image) -> list[TextBlock]:
         if confidence > 0.5:
             (x, y), (w, h) = bbox[0], bbox[2]
             x, y, w, h = int(x), int(y), int(w), int(h)
-            print(f"Detected text: {text} with confidence: {confidence}")
-            print(f"Bounding box: {x, y, w, h}")
-            text_blocks.append(
-                TextBlock(
-                    text=text, bounding_box=[x, y, w - x, h - y], confidence=confidence
-                )
-            )
+            text_blocks.append(TextBlock(text=text, bounding_box=[x, y, w - x, h - y]))
     return text_blocks
 
 
@@ -56,16 +50,15 @@ def analyze_image(image_path: str) -> ImageAnalysis:
     image = Image.open(image_path)
     width, height = image.size
     text_blocks = detect_text(image)
-    merged_blocks = merge_horizontal_boxes(text_blocks)
-    return ImageAnalysis(width=width, height=height, text_blocks=merged_blocks)
+    return ImageAnalysis(width=width, height=height, text_blocks=text_blocks)
 
 
-def draw_boxes(image_path: str, analysis: ImageAnalysis, output_path: str = None):
+def draw_boxes(image_path: str, text_blocks: list[TextBlock], output_path: str = None):
     from PIL import Image, ImageDraw
 
     image = Image.open(image_path)
     draw = ImageDraw.Draw(image)
-    for block in analysis.text_blocks:
+    for block in text_blocks:
         x, y, w, h = block.bounding_box
         draw.rectangle([x, y, x + w, y + h], outline="white", width=2)
         draw.text((x, y - 15), block.text, fill="white")
@@ -95,11 +88,9 @@ def merge_horizontal_boxes(
                 new_x = min(current_block.bounding_box[0], x2)
                 new_w = max(current_block.bounding_box[0] + w1, x2 + w2) - new_x
                 new_text = current_block.text + " " + block.text
-                new_confidence = (current_block.confidence + block.confidence) / 2
                 current_block = TextBlock(
                     text=new_text,
                     bounding_box=[new_x, y1, new_w, h1],
-                    confidence=new_confidence,
                 )
             else:
                 merged_blocks.append(current_block)
@@ -108,6 +99,44 @@ def merge_horizontal_boxes(
     if current_block is not None:
         merged_blocks.append(current_block)
 
+    return merged_blocks
+
+
+def merge_vertical_boxes(
+    text_blocks: list[TextBlock], threshold: int = 10
+) -> list[TextBlock]:
+    if not text_blocks:
+        return []
+
+    text_blocks.sort(key=lambda block: block.bounding_box[1])
+
+    merged_blocks = []
+    current_block = text_blocks[0]
+
+    for block in text_blocks[1:]:
+        y1 = current_block.bounding_box[1] + current_block.bounding_box[3]
+        next_y0 = block.bounding_box[1]
+
+        if y1 + threshold >= next_y0:
+            new_y = current_block.bounding_box[1]
+            new_h = block.bounding_box[1] + block.bounding_box[3] - new_y
+            new_x = min(current_block.bounding_box[0], block.bounding_box[0])
+            new_w = (
+                max(
+                    current_block.bounding_box[0] + current_block.bounding_box[2],
+                    block.bounding_box[0] + block.bounding_box[2],
+                )
+                - new_x
+            )
+            new_text = current_block.text + "\n" + block.text
+            current_block = TextBlock(
+                text=new_text, bounding_box=[new_x, new_y, new_w, new_h]
+            )
+        else:
+            merged_blocks.append(current_block)
+            current_block = block
+
+    merged_blocks.append(current_block)
     return merged_blocks
 
 

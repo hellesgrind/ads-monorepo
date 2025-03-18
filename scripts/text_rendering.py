@@ -66,7 +66,10 @@ def encode_image(image_path: str) -> str:
 
 
 def get_layout_from_image(
-    image_path: str, width: int, height: int, text_blocks: list
+    image_path: str,
+    width: int,
+    height: int,
+    text_blocks: list,
 ) -> str:
     image_base64 = encode_image(image_path)
     request = TextRenderRequest(

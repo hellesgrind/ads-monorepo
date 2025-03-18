@@ -1,23 +1,21 @@
-from PIL import Image
-import imgkit
+from playwright.sync_api import sync_playwright
 import os
-import tempfile
 
 
-def render_html_to_image(html_content: str, width: int, height: int) -> Image.Image:
-    with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as f:
-        f.write(html_content.encode("utf-8"))
-        html_path = f.name
+def render_html_to_image(html_content: str, output_path: str, width: int, height: int):
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": width, "height": height})
 
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-        output_path = f.name
+        page.set_content(html_content)
+        page.wait_for_load_state("networkidle")
+        page.screenshot(path=output_path)
+        browser.close()
 
-    options = {"format": "png", "width": width, "height": height, "quality": 100}
 
-    imgkit.from_file(html_path, output_path, options=options)
-
-    os.unlink(html_path)
-    image = Image.open(output_path)
-    os.unlink(output_path)
-
-    return image
+if __name__ == "__main__":
+    html = "<div>Test</div>"
+    output = "test.png"
+    width = 1920
+    height = 1080
+    render_html_to_image(html, output, width, height)

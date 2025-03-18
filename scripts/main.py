@@ -12,33 +12,32 @@ def process_image(input_path: str, output_path: str, html_path: str, boxes_path:
     print(f"Starting analysis of: {input_path}")
 
     analysis = analyze_image(input_path)
-    print(f"Analysis: {analysis}")
     text_blocks = analysis.text_blocks
     text_blocks = merge_horizontal_boxes(text_blocks)
     text_blocks = merge_vertical_boxes(text_blocks)
 
-    print("Drawing boxes on original image")
-    draw_boxes(input_path, text_blocks, boxes_path)
-    print(f"Image with boxes saved to: {boxes_path}")
-    cleaned_image_path = "cleaned_image.png"
-    remove_text_from_image(
-        image_path=input_path,
-        text_blocks=analysis.text_blocks,
-        output_path=cleaned_image_path,
-    )
-    print(f"Cleaned image saved to: {cleaned_image_path}")
-    changed_image_path = "changed_image.png"
-    redux_image(cleaned_image_path, changed_image_path)
-    print(f"Changed image saved to: {changed_image_path}")
-    # print("Getting HTML layout from Claude")
-    # html_layout = get_layout_from_image(
-    #     input_path,
-    #     analysis.width,
-    #     analysis.height,
-    #     text_blocks,
+    # print("Drawing boxes on original image")
+    # draw_boxes(input_path, text_blocks, boxes_path)
+    # print(f"Image with boxes saved to: {boxes_path}")
+    # cleaned_image_path = "cleaned_image.png"
+    # remove_text_from_image(
+    #     image_path=input_path,
+    #     text_blocks=analysis.text_blocks,
+    #     output_path=cleaned_image_path,
     # )
-    # with open(html_path, "w") as f:
-    #     f.write(html_layout)
+    # print(f"Cleaned image saved to: {cleaned_image_path}")
+    # changed_image_path = "changed_image.png"
+    # redux_image(cleaned_image_path, changed_image_path)
+    # print(f"Changed image saved to: {changed_image_path}")
+    # # print("Getting HTML layout from Claude")
+    html_layout = get_layout_from_image(
+        input_path,
+        analysis.width,
+        analysis.height,
+        text_blocks,
+    )
+    with open(html_path, "w") as f:
+        f.write(html_layout)
     # # html_layout = open(html_path).read()
 
     # print("Rendering HTML to image")
@@ -47,7 +46,7 @@ def process_image(input_path: str, output_path: str, html_path: str, boxes_path:
 
 
 if __name__ == "__main__":
-    input_path = "example.jpeg"
+    input_path = "example.png"
     output_path = "result.png"
     html_path = "layout.html"
     boxes_path = "boxes.jpeg"

@@ -8,6 +8,7 @@ import json
 import io
 import pytesseract
 import easyocr
+import numpy as np
 
 load_dotenv()
 
@@ -30,16 +31,18 @@ class ImageAnalysis(BaseModel):
 
 def encode_image(image: Image.Image) -> str:
     buffer = io.BytesIO()
-    image.save(buffer, format="JPEG")
+    image_format = image.format if image.format else "JPEG"
+    image.save(buffer, format=image_format)
     return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
 
 def detect_text(image: Image.Image) -> list[TextBlock]:
     reader = easyocr.Reader(["en"])
-    results = reader.readtext(image)
+    image_np = np.array(image)
+    results = reader.readtext(image_np)
     text_blocks = []
     for bbox, text, confidence in results:
-        if confidence > 0.5:
+        if confidence > 0.4:
             (x, y), (w, h) = bbox[0], bbox[2]
             x, y, w, h = int(x), int(y), int(w), int(h)
             text_blocks.append(TextBlock(text=text, bounding_box=[x, y, w - x, h - y]))
@@ -57,14 +60,15 @@ def draw_boxes(image_path: str, text_blocks: list[TextBlock], output_path: str =
     from PIL import Image, ImageDraw
 
     image = Image.open(image_path)
+    image_format = image.format
     draw = ImageDraw.Draw(image)
     for block in text_blocks:
         x, y, w, h = block.bounding_box
         draw.rectangle([x, y, x + w, y + h], outline="white", width=2)
         draw.text((x, y - 15), block.text, fill="white")
     if output_path is None:
-        output_path = "output_with_boxes.jpeg"
-    image.save(output_path)
+        output_path = f"output_with_boxes.{image_format.lower()}"
+    image.save(output_path, format=image_format)
     return output_path
 
 

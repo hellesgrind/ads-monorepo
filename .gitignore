@@ -1,3 +1,10 @@
 venv/
 __pycache__/
 .env
+*.html
+*.png
+*.jpeg
+*.jpg
+*.webp
+*.gif
+*.svg

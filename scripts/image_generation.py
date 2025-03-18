@@ -61,7 +61,7 @@ def remove_text_from_image(
     return output_path
 
 
-def redux_image(image_path: str, output_path: str):
+def regenerate_image(image_path: str, output_path: str):
     image_url = fal_client.upload_file(image_path)
     width, height = Image.open(image_path).size
     result = fal_client.subscribe(

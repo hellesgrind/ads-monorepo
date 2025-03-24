@@ -1,17 +1,22 @@
 import base64
 import json
 import os
+from typing import Literal
 import easyocr
 import numpy as np
 from PIL import Image, ImageDraw
 from pydantic import BaseModel
 import anthropic
+from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
 
 client = anthropic.Anthropic(
     api_key=os.getenv("ANTHROPIC_API_KEY"),
+)
+openai_client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
 )
 
 
@@ -28,6 +33,10 @@ class TextBlockWithFontSize(BaseModel):
 
 class TextBlockWithFontSizeAndLineSpacing(TextBlockWithFontSize):
     line_spacing: float
+
+
+class TextBlockWithAlignment(TextBlockWithFontSizeAndLineSpacing):
+    alignment: Literal["left", "right", "center"]
 
 
 class ImageText(BaseModel):
@@ -65,7 +74,7 @@ def _detect_text(image: Image) -> list[TextBlockWithFontSize]:
 
 
 def _calculate_font_size(height: int) -> int:
-    return int(height * 0.95)
+    return int(height * 0.8)
 
 
 def merge_horizontally(
@@ -163,10 +172,6 @@ def merge_vertically(
                         merged_text = f"{block2.text}\\n{block1.text}"
                     else:
                         merged_text = f"{block1.text}\\n{block2.text}"
-                    print("--------------------------------")
-                    print(f"Merged \n'{block1.text}' and \n '{block2.text}'")
-                    print(f"Merged text: \n '{merged_text}'")
-                    print("--------------------------------")
 
                     merged_block = TextBlockWithFontSize(
                         text=merged_text,
@@ -230,8 +235,8 @@ def _encode_image(image_path: str) -> tuple[str, str]:
 
 def correct_text_with_llm(
     image_path: str,
-    text_blocks: list[TextBlockWithFontSize],
-) -> list[TextBlockWithFontSize]:
+    text_blocks: list[TextBlockWithFontSizeAndLineSpacing],
+) -> list[TextBlockWithFontSizeAndLineSpacing]:
     prompt = """
     You will be given an image and list of detected texts.
     You need to correct the spelling and include "\n" for new lines.
@@ -271,22 +276,98 @@ def correct_text_with_llm(
             },
         ],
     )
-
+    print("text correction response: ", response.content[0].text)
     response_json = json.loads(response.content[0].text)
-    print(response_json)
+    print("text correction response json: ", response_json)
     corrected_blocks = []
 
     for i, corrected_item in enumerate(response_json):
         if i < len(text_blocks):
+            original_block = text_blocks[i].model_copy()
+            original_block_dump = original_block.model_dump()
+            original_block_dump.pop("text")
             corrected_blocks.append(
-                TextBlockWithFontSize(
+                TextBlockWithFontSizeAndLineSpacing(
                     text=corrected_item["text"],
-                    bounding_box=text_blocks[i].bounding_box,
-                    font_size=text_blocks[i].font_size,
+                    **original_block_dump,
                 )
             )
 
     return corrected_blocks
+
+def _encode_image_for_openai(image_path: str) -> str:
+    if image_path.endswith(".png"):
+        media_type = "image/png"
+    elif image_path.endswith((".jpg", ".jpeg")):
+        media_type = "image/jpeg"
+    else:
+        media_type = "image/png"
+
+    with open(image_path, "rb") as image_file:
+        file_content = image_file.read()
+        encoded_content = base64.b64encode(file_content).decode("utf-8")
+        return f"data:{media_type};base64,{encoded_content}"
+
+
+def identify_text_alignment(
+    image_path: str,
+    text_blocks: list[TextBlockWithFontSizeAndLineSpacing],
+) -> list[TextBlockWithAlignment]:
+    prompt = """
+    You will be given an image and list of detected texts with their IDs.
+    Your task is to determine the text alignment of each text block: left, center, or right.
+    left: if text is aligned by left border
+    center: if text is aligned by center
+    right: if text is aligned by right border
+    Only return the alignment information in this JSON format:
+    [
+        {
+            "id": 0,
+            "alignment": 
+        },
+        ...
+    ]
+    Do not write any other text, don't write ```json or ```
+    """
+
+    text_data = [{"id": i, "text": block.text} for i, block in enumerate(text_blocks)]
+    text_blocks_str = json.dumps(text_data)
+    prompt += f"Detected texts: {text_blocks_str}\n"
+
+    image_data = _encode_image_for_openai(image_path)
+
+    response = openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": image_data,
+                        },
+                    },
+                ],
+            },
+        ],
+    )
+    print("text alignment response: ", response.choices[0].message.content)
+    response_json = json.loads(response.choices[0].message.content)
+    print("text alignment response json: ", response_json)
+
+    result_blocks = []
+    for item in response_json:
+        text_id = int(item["id"])
+        original_text_block = text_blocks[text_id]
+        result_blocks.append(
+            TextBlockWithAlignment(
+                alignment=item["center"],
+                **original_text_block.model_dump(),
+            )
+        )
+    return result_blocks
 
 
 def _block_line_spacing(text_block: TextBlockWithFontSize) -> int:
@@ -322,36 +403,44 @@ def calculate_line_spacing(
 
 
 if __name__ == "__main__":
-    image_path = "inputs/creo_01.png"
-    result = recognize_text(image_path)
-    with open("outputs/recognized_text.json", "w", encoding="utf-8") as f:
-        dump = [block.model_dump() for block in result.text_blocks]
-        json.dump(dump, f, indent=4, ensure_ascii=False)
+    # image_path = "inputs/creo_01.png"
+    # result = recognize_text(image_path)
+    # with open("outputs/recognized_text.json", "w", encoding="utf-8") as f:
+    #     dump = [block.model_dump() for block in result.text_blocks]
+    #     json.dump(dump, f, indent=4, ensure_ascii=False)
 
-    merged_blocks = merge_text_blocks(result.text_blocks)
-    with open("outputs/merged_text.json", "w", encoding="utf-8") as f:
-        dump = [block.model_dump() for block in merged_blocks]
-        json.dump(dump, f, indent=4, ensure_ascii=False)
-    output_path = "outputs/recognized_text.png"
-    draw_bounding_boxes(image_path, merged_blocks, output_path)
-    blocks_with_line_spacing = calculate_line_spacing(merged_blocks)
-    with open(
-        "outputs/recognized_text_with_line_spacing.json", "w", encoding="utf-8"
-    ) as f:
-        dump = [block.model_dump() for block in blocks_with_line_spacing]
-        json.dump(dump, f, indent=4, ensure_ascii=False)
+    # merged_blocks = merge_text_blocks(result.text_blocks)
+    # with open("outputs/merged_text.json", "w", encoding="utf-8") as f:
+    #     dump = [block.model_dump() for block in merged_blocks]
+    #     json.dump(dump, f, indent=4, ensure_ascii=False)
+    # output_path = "outputs/recognized_text.png"
+    # draw_bounding_boxes(image_path, merged_blocks, output_path)
     # print(f"Image with bounding boxes saved to: {output_path}")
-    # corrected_blocks = correct_text_with_llm(image_path, merged_blocks)
-    # with open("outputs/corrected_text.json", "w", encoding="utf-8") as f:
-    #     blocks_data = [
-    #         {
-    #             "text": block.text.replace("\\n", "\n"),
-    #             "bounding_box": block.bounding_box,
-    #             "font_size": block.font_size,
-    #         }
-    #         for block in corrected_blocks
+
+    # blocks_with_line_spacing = calculate_line_spacing(merged_blocks)
+    # with open(
+    #     "outputs/recognized_text_with_line_spacing.json", "w", encoding="utf-8"
+    # ) as f:
+    #     dump = [block.model_dump() for block in blocks_with_line_spacing]
+    #     json.dump(dump, f, indent=4, ensure_ascii=False)
+
+    image_path = "inputs/creo_01.png"
+    # with open("outputs/recognized_text_with_line_spacing.json", "r", encoding="utf-8") as f:
+    #     blocks_with_line_spacing = [
+    #         TextBlockWithFontSizeAndLineSpacing(**block)
+    #         for block in json.load(f)
     #     ]
-    #     json.dump(blocks_data, f, indent=4, ensure_ascii=False)
-    # # for block in corrected_blocks:
-    # #     print(f"Found text: {block.text}")
-    # #     print(f"Position: {block.bounding_box}")
+    # corrected_blocks = correct_text_with_llm(image_path, blocks_with_line_spacing)
+    # with open("outputs/corrected_text.json", "w", encoding="utf-8") as f:
+    #     dump = [block.model_dump() for block in corrected_blocks]
+    #     json.dump(dump, f, indent=4, ensure_ascii=False)
+    with open("outputs/corrected_text.json", "r", encoding="utf-8") as f:
+        corrected_blocks = [
+            TextBlockWithFontSizeAndLineSpacing(**block)
+            for block in json.load(f)
+        ]
+
+    blocks_with_alignment = identify_text_alignment(image_path, corrected_blocks)
+    with open("outputs/corrected_text_with_alignment.json", "w", encoding="utf-8") as f:
+        dump = [block.model_dump() for block in blocks_with_alignment]
+        json.dump(dump, f, indent=4, ensure_ascii=False)

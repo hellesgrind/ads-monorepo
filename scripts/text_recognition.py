@@ -158,7 +158,7 @@ def correct_text_with_llm(
 ) -> list[TextBlockWithFontSize]:
     prompt = """
     You will be given an image and list of detected texts.
-    You need to correct the spelling.
+    You need to correct the spelling and include "\n" for new lines.
     Only return the corrected text, no other text.
     Return the corrected text in JSON format in the same order as the detected texts.
     [
@@ -227,16 +227,16 @@ if __name__ == "__main__":
         print(f"Font size: {block.font_size}")
     print(f"Image with bounding boxes saved to: {output_path}")
     corrected_blocks = correct_text_with_llm(image_path, merged_blocks)
-    with open("outputs/corrected_text.json", "w") as f:
+    with open("outputs/corrected_text.json", "w", encoding="utf-8") as f:
         blocks_data = [
             {
-                "text": block.text,
+                "text": block.text.replace("\\n", "\n"),
                 "bounding_box": block.bounding_box,
                 "font_size": block.font_size,
             }
             for block in corrected_blocks
         ]
-        json.dump(blocks_data, f, indent=4)
+        json.dump(blocks_data, f, indent=4, ensure_ascii=False)
     # for block in corrected_blocks:
     #     print(f"Found text: {block.text}")
     #     print(f"Position: {block.bounding_box}")

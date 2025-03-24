@@ -10,6 +10,16 @@ import anthropic
 from openai import OpenAI
 from dotenv import load_dotenv
 
+from html_generation import generate_html
+from schema import (
+    TextBlockWithFontSize,
+    TextBlockWithFontSizeAndLineSpacing,
+    TextBlockWithAlignment,
+    ImageText,
+    TextBlockWithFontName,
+    AnalyzedImage,
+)
+
 load_dotenv()
 
 client = anthropic.Anthropic(
@@ -18,31 +28,6 @@ client = anthropic.Anthropic(
 openai_client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
 )
-
-
-# class TextBlock(BaseModel):
-#     text: str
-#     bounding_box: list[int]
-
-
-class TextBlockWithFontSize(BaseModel):
-    text: str
-    bounding_box: list[int]
-    font_size: int
-
-
-class TextBlockWithFontSizeAndLineSpacing(TextBlockWithFontSize):
-    line_spacing: float
-
-
-class TextBlockWithAlignment(TextBlockWithFontSizeAndLineSpacing):
-    alignment: Literal["left", "right", "center"]
-
-
-class ImageText(BaseModel):
-    width: int
-    height: int
-    text_blocks: list[TextBlockWithFontSize]
 
 
 def recognize_text(image_path: str) -> ImageText:
@@ -295,6 +280,7 @@ def correct_text_with_llm(
 
     return corrected_blocks
 
+
 def _encode_image_for_openai(image_path: str) -> str:
     if image_path.endswith(".png"):
         media_type = "image/png"
@@ -315,15 +301,14 @@ def identify_text_alignment(
 ) -> list[TextBlockWithAlignment]:
     prompt = """
     You will be given an image and list of detected texts with their IDs.
-    Your task is to determine the text alignment of each text block: left, center, or right.
+    Your task is to determine the text alignment of each text block: left or center.
     left: if text is aligned by left border
     center: if text is aligned by center
-    right: if text is aligned by right border
     Only return the alignment information in this JSON format:
     [
         {
             "id": 0,
-            "alignment": 
+            "alignment": "left" or "center"
         },
         ...
     ]
@@ -337,7 +322,7 @@ def identify_text_alignment(
     image_data = _encode_image_for_openai(image_path)
 
     response = openai_client.chat.completions.create(
-        model="gpt-4o",
+        model="gpt-4.5-preview",
         messages=[
             {
                 "role": "user",
@@ -363,7 +348,66 @@ def identify_text_alignment(
         original_text_block = text_blocks[text_id]
         result_blocks.append(
             TextBlockWithAlignment(
-                alignment=item["center"],
+                alignment=item["alignment"],
+                **original_text_block.model_dump(),
+            )
+        )
+    return result_blocks
+
+
+def identify_text_font_name(
+    image_path: str,
+    text_blocks: list[TextBlockWithFontSizeAndLineSpacing],
+) -> list[TextBlockWithFontName]:
+    prompt = """
+    You will be given an image and list of detected texts with their IDs.
+    Your task is to determine the text font name of each text block.
+    Find the closest match from the Google Fonts library.
+    Only return the font name information in this JSON format:
+    [
+        {
+            "id": 0,
+            "font_name": 
+        },
+        ...
+    ]
+    Do not write any other text, don't write ```json or ```
+    """
+
+    text_data = [{"id": i, "text": block.text} for i, block in enumerate(text_blocks)]
+    text_blocks_str = json.dumps(text_data)
+    prompt += f"Detected texts: {text_blocks_str}\n"
+
+    image_data = _encode_image_for_openai(image_path)
+
+    response = openai_client.chat.completions.create(
+        model="gpt-4.5-preview",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": image_data,
+                        },
+                    },
+                ],
+            },
+        ],
+    )
+    print("text alignment response: ", response.choices[0].message.content)
+    response_json = json.loads(response.choices[0].message.content)
+    print("text alignment response json: ", response_json)
+
+    result_blocks = []
+    for item in response_json:
+        text_id = int(item["id"])
+        original_text_block = text_blocks[text_id]
+        result_blocks.append(
+            TextBlockWithFontName(
+                font_name=item["font_name"],
                 **original_text_block.model_dump(),
             )
         )
@@ -403,44 +447,59 @@ def calculate_line_spacing(
 
 
 if __name__ == "__main__":
-    # image_path = "inputs/creo_01.png"
-    # result = recognize_text(image_path)
-    # with open("outputs/recognized_text.json", "w", encoding="utf-8") as f:
-    #     dump = [block.model_dump() for block in result.text_blocks]
-    #     json.dump(dump, f, indent=4, ensure_ascii=False)
 
-    # merged_blocks = merge_text_blocks(result.text_blocks)
-    # with open("outputs/merged_text.json", "w", encoding="utf-8") as f:
-    #     dump = [block.model_dump() for block in merged_blocks]
-    #     json.dump(dump, f, indent=4, ensure_ascii=False)
-    # output_path = "outputs/recognized_text.png"
-    # draw_bounding_boxes(image_path, merged_blocks, output_path)
-    # print(f"Image with bounding boxes saved to: {output_path}")
+    def _save_to_json(blocks: list[BaseModel], filepath: str) -> None:
+        with open(filepath, "w", encoding="utf-8") as f:
+            dump = [block.model_dump() for block in blocks]
+            json.dump(dump, f, indent=4, ensure_ascii=False)
 
-    # blocks_with_line_spacing = calculate_line_spacing(merged_blocks)
-    # with open(
-    #     "outputs/recognized_text_with_line_spacing.json", "w", encoding="utf-8"
-    # ) as f:
-    #     dump = [block.model_dump() for block in blocks_with_line_spacing]
-    #     json.dump(dump, f, indent=4, ensure_ascii=False)
+    def _load_from_json(filepath: str) -> list[BaseModel]:
+        with open(filepath, "r", encoding="utf-8") as f:
+            return json.load(f)
 
     image_path = "inputs/creo_01.png"
-    # with open("outputs/recognized_text_with_line_spacing.json", "r", encoding="utf-8") as f:
-    #     blocks_with_line_spacing = [
-    #         TextBlockWithFontSizeAndLineSpacing(**block)
-    #         for block in json.load(f)
-    #     ]
-    # corrected_blocks = correct_text_with_llm(image_path, blocks_with_line_spacing)
-    # with open("outputs/corrected_text.json", "w", encoding="utf-8") as f:
-    #     dump = [block.model_dump() for block in corrected_blocks]
-    #     json.dump(dump, f, indent=4, ensure_ascii=False)
-    with open("outputs/corrected_text.json", "r", encoding="utf-8") as f:
-        corrected_blocks = [
-            TextBlockWithFontSizeAndLineSpacing(**block)
-            for block in json.load(f)
-        ]
+    result = recognize_text(image_path)
+    _save_to_json(result.text_blocks, "outputs/recognized_text.json")
+
+    merged_blocks = merge_text_blocks(result.text_blocks)
+    _save_to_json(merged_blocks, "outputs/merged_text.json")
+
+    output_path = "outputs/recognized_text.png"
+    draw_bounding_boxes(image_path, merged_blocks, output_path)
+    print(f"Image with bounding boxes saved to: {output_path}")
+
+    blocks_with_line_spacing = calculate_line_spacing(merged_blocks)
+    _save_to_json(
+        blocks_with_line_spacing, "outputs/recognized_text_with_line_spacing.json"
+    )
+
+    corrected_blocks = correct_text_with_llm(image_path, blocks_with_line_spacing)
+    _save_to_json(corrected_blocks, "outputs/corrected_text.json")
+
+    corrected_blocks = _load_from_json("outputs/corrected_text.json")
 
     blocks_with_alignment = identify_text_alignment(image_path, corrected_blocks)
-    with open("outputs/corrected_text_with_alignment.json", "w", encoding="utf-8") as f:
-        dump = [block.model_dump() for block in blocks_with_alignment]
-        json.dump(dump, f, indent=4, ensure_ascii=False)
+    _save_to_json(blocks_with_alignment, "outputs/corrected_text_with_alignment.json")
+
+    blocks_with_alignment = _load_from_json(
+        "outputs/corrected_text_with_alignment.json"
+    )
+
+    blocks_with_font_name = identify_text_font_name(image_path, blocks_with_alignment)
+    _save_to_json(blocks_with_font_name, "outputs/corrected_text_with_font_name.json")
+
+    width, height = Image.open(image_path).size
+    analyzed_image = AnalyzedImage(
+        width=width,
+        height=height,
+        text_blocks=blocks_with_font_name,
+    )
+    _save_to_json(analyzed_image.model_dump(), "outputs/analyzed_image.json")
+    html_code = generate_html(
+        height=analyzed_image.height,
+        width=analyzed_image.width,
+        text_blocks=analyzed_image.text_blocks,
+    )
+    print(html_code)
+    with open("outputs/generated_html.html", "w", encoding="utf-8") as f:
+        f.write(html_code)

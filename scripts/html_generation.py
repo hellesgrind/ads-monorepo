@@ -8,15 +8,15 @@ client = anthropic.Anthropic(
     api_key=os.getenv("ANTHROPIC_API_KEY"),
 )
 
-from text_recognition import TextBlockWithFontSize
+from schema import TextBlockWithFontName
 
 
-def generate_html(width: int, height: int, text_blocks: list[TextBlockWithFontSize]):
+def generate_html(width: int, height: int, text_blocks: list[TextBlockWithFontName]):
     prompt = f"""
     You need to generate a HTML code for a white page with black text.
     The size of page is {width} x {height}.
     You will be given a list of text blocks.
-    Every text block has a text, a bounding box and a font size.
+    Every text block has a text, a bounding box, font size, text alignment, line spacing and a font name.
     The text blocks are:
     {text_blocks}
     Return only the HTML code, no other text.
@@ -24,7 +24,7 @@ def generate_html(width: int, height: int, text_blocks: list[TextBlockWithFontSi
     """
 
     response = client.messages.create(
-        model="claude-3-5-sonnet-20241022",
+        model="claude-3-7-sonnet-latest",
         max_tokens=1024,
         messages=[
             {
@@ -40,6 +40,7 @@ def generate_html(width: int, height: int, text_blocks: list[TextBlockWithFontSi
 if __name__ == "__main__":
     from PIL import Image
     import json
+
     image_path = "inputs/creo_01.png"
     width, height = Image.open(image_path).size
 

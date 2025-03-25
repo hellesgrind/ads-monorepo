@@ -1,0 +1,62 @@
+{
+    "width": 1024,
+    "height": 1024,
+    "text_blocks": [
+        {
+            "text": "THE ONLY WALL PILATES\nWORKOUT EVERY WOMAN\nSHOULD FOLLOW",
+            "bounding_box": [
+                463,
+                55,
+                995,
+                271
+            ],
+            "font_size": 54,
+            "line_spacing": 18.0,
+            "alignment": "left",
+            "font_name": "Anton",
+            "color": "#FFFFFF"
+        },
+        {
+            "text": "I finally toned my body, which I\nhave wanted to do for years!\nI have boosted my energy level,\nrelieved stiffness, and become\ntoned up from the comfort\nof home.\nAll this just by doing 15-minute\ndaily exercises. Now I can fit\ninto tight jeans and feel even\nmore confident.",
+            "bounding_box": [
+                467,
+                326,
+                973,
+                723
+            ],
+            "font_size": 28,
+            "line_spacing": 11.0,
+            "alignment": "left",
+            "font_name": "Poppins",
+            "color": "#FFFFFF"
+        },
+        {
+            "text": "You definitely should\ntry this app now.",
+            "bounding_box": [
+                468,
+                768,
+                834,
+                863
+            ],
+            "font_size": 38,
+            "line_spacing": 9.0,
+            "alignment": "left",
+            "font_name": "Poppins",
+            "color": "#FFFFFF"
+        },
+        {
+            "text": "Following exercise and meal plans greatly impacts results. In 4 weeks user can\ntypically expect to lose up to 1-2 pounds per week. Results may vary.",
+            "bounding_box": [
+                185,
+                963,
+                838,
+                1011
+            ],
+            "font_size": 21,
+            "line_spacing": 3.0,
+            "alignment": "center",
+            "font_name": "Roboto",
+            "color": "#FFFFFF"
+        }
+    ]
+}

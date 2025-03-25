@@ -26,7 +26,11 @@ class TextBlockWithFontName(TextBlockWithAlignment):
     font_name: str
 
 
+class TextBlockWithFontNameAndColor(TextBlockWithFontName):
+    color: str
+
+
 class AnalyzedImage(BaseModel):
     width: int
     height: int
-    text_blocks: list[TextBlockWithFontName]
+    text_blocks: list[TextBlockWithFontNameAndColor]

@@ -1,16 +1,14 @@
 import base64
 import json
 import os
-from typing import Literal
 import easyocr
 import numpy as np
 from PIL import Image, ImageDraw
-from pydantic import BaseModel
 import anthropic
 from openai import OpenAI
 from dotenv import load_dotenv
+from loguru import logger
 
-from html_generation import generate_html
 from schema import (
     TextBlockWithFontSize,
     TextBlockWithFontSizeAndLineSpacing,
@@ -18,6 +16,7 @@ from schema import (
     ImageText,
     TextBlockWithFontName,
     AnalyzedImage,
+    TextBlockWithFontNameAndColor,
 )
 
 load_dotenv()
@@ -30,14 +29,35 @@ openai_client = OpenAI(
 )
 
 
+def analyze_image(image_path: str) -> AnalyzedImage:
+    result = recognize_text(image_path)
+
+    merged_blocks = merge_text_blocks(result.text_blocks)
+
+    blocks_with_line_spacing = calculate_line_spacing(merged_blocks)
+
+    corrected_blocks = correct_text_with_llm(image_path, blocks_with_line_spacing)
+    blocks_with_alignment = identify_text_alignment(image_path, corrected_blocks)
+    blocks_with_font_name = identify_text_font_name(image_path, blocks_with_alignment)
+    blocks_with_color = identify_text_color(image_path, blocks_with_font_name)
+
+    width, height = Image.open(image_path).size
+    analyzed_image = AnalyzedImage(
+        width=width,
+        height=height,
+        text_blocks=blocks_with_color,
+    )
+    return analyzed_image
+
+
 def recognize_text(image_path: str) -> ImageText:
     image = Image.open(image_path)
     width, height = image.size
-    text_blocks = _detect_text(image)
+    text_blocks = detect_text(image)
     return ImageText(width=width, height=height, text_blocks=text_blocks)
 
 
-def _detect_text(image: Image) -> list[TextBlockWithFontSize]:
+def detect_text(image: Image) -> list[TextBlockWithFontSize]:
     text_blocks = []
     reader = easyocr.Reader(["en"])
     results = reader.readtext(np.array(image))
@@ -261,9 +281,9 @@ def correct_text_with_llm(
             },
         ],
     )
-    print("text correction response: ", response.content[0].text)
+    logger.info(f"text correction response: {response.content[0].text}")
     response_json = json.loads(response.content[0].text)
-    print("text correction response json: ", response_json)
+    logger.info(f"text correction response json: {response_json}")
     corrected_blocks = []
 
     for i, corrected_item in enumerate(response_json):
@@ -338,9 +358,9 @@ def identify_text_alignment(
             },
         ],
     )
-    print("text alignment response: ", response.choices[0].message.content)
+    logger.info(f"text alignment response: {response.choices[0].message.content}")
     response_json = json.loads(response.choices[0].message.content)
-    print("text alignment response json: ", response_json)
+    logger.info(f"text alignment response json: {response_json}")
 
     result_blocks = []
     for item in response_json:
@@ -397,9 +417,9 @@ def identify_text_font_name(
             },
         ],
     )
-    print("text alignment response: ", response.choices[0].message.content)
+    logger.info(f"text alignment response: {response.choices[0].message.content}")
     response_json = json.loads(response.choices[0].message.content)
-    print("text alignment response json: ", response_json)
+    logger.info(f"text alignment response json: {response_json}")
 
     result_blocks = []
     for item in response_json:
@@ -408,6 +428,64 @@ def identify_text_font_name(
         result_blocks.append(
             TextBlockWithFontName(
                 font_name=item["font_name"],
+                **original_text_block.model_dump(),
+            )
+        )
+    return result_blocks
+
+
+def identify_text_color(
+    image_path: str,
+    text_blocks: list[TextBlockWithFontSizeAndLineSpacing],
+) -> list[TextBlockWithFontNameAndColor]:
+    prompt = """
+    You will be given an image and list of detected texts with their IDs.
+    Your task is to determine the text color of each text block.
+    Only return the color information in this JSON format:
+    [
+        {
+            "id": 0,
+            "color": "hex color code"
+        },
+        ...
+    ]
+    Do not write any other text, don't write ```json or ```
+    """
+
+    text_data = [{"id": i, "text": block.text} for i, block in enumerate(text_blocks)]
+    text_blocks_str = json.dumps(text_data)
+    prompt += f"Detected texts: {text_blocks_str}\n"
+
+    image_data = _encode_image_for_openai(image_path)
+
+    response = openai_client.chat.completions.create(
+        model="gpt-4.5-preview",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": image_data,
+                        },
+                    },
+                ],
+            },
+        ],
+    )
+    logger.info(f"text color response: {response.choices[0].message.content}")
+    response_json = json.loads(response.choices[0].message.content)
+    logger.info(f"text color response json: {response_json}")
+
+    result_blocks = []
+    for item in response_json:
+        text_id = int(item["id"])
+        original_text_block = text_blocks[text_id]
+        result_blocks.append(
+            TextBlockWithFontNameAndColor(
+                color=item["color"],
                 **original_text_block.model_dump(),
             )
         )
@@ -445,61 +523,3 @@ def calculate_line_spacing(
         )
     return blocks_with_line_spacing
 
-
-if __name__ == "__main__":
-
-    def _save_to_json(blocks: list[BaseModel], filepath: str) -> None:
-        with open(filepath, "w", encoding="utf-8") as f:
-            dump = [block.model_dump() for block in blocks]
-            json.dump(dump, f, indent=4, ensure_ascii=False)
-
-    def _load_from_json(filepath: str) -> list[BaseModel]:
-        with open(filepath, "r", encoding="utf-8") as f:
-            return json.load(f)
-
-    image_path = "inputs/creo_01.png"
-    result = recognize_text(image_path)
-    _save_to_json(result.text_blocks, "outputs/recognized_text.json")
-
-    merged_blocks = merge_text_blocks(result.text_blocks)
-    _save_to_json(merged_blocks, "outputs/merged_text.json")
-
-    output_path = "outputs/recognized_text.png"
-    draw_bounding_boxes(image_path, merged_blocks, output_path)
-    print(f"Image with bounding boxes saved to: {output_path}")
-
-    blocks_with_line_spacing = calculate_line_spacing(merged_blocks)
-    _save_to_json(
-        blocks_with_line_spacing, "outputs/recognized_text_with_line_spacing.json"
-    )
-
-    corrected_blocks = correct_text_with_llm(image_path, blocks_with_line_spacing)
-    _save_to_json(corrected_blocks, "outputs/corrected_text.json")
-
-    corrected_blocks = _load_from_json("outputs/corrected_text.json")
-
-    blocks_with_alignment = identify_text_alignment(image_path, corrected_blocks)
-    _save_to_json(blocks_with_alignment, "outputs/corrected_text_with_alignment.json")
-
-    blocks_with_alignment = _load_from_json(
-        "outputs/corrected_text_with_alignment.json"
-    )
-
-    blocks_with_font_name = identify_text_font_name(image_path, blocks_with_alignment)
-    _save_to_json(blocks_with_font_name, "outputs/corrected_text_with_font_name.json")
-
-    width, height = Image.open(image_path).size
-    analyzed_image = AnalyzedImage(
-        width=width,
-        height=height,
-        text_blocks=blocks_with_font_name,
-    )
-    _save_to_json(analyzed_image.model_dump(), "outputs/analyzed_image.json")
-    html_code = generate_html(
-        height=analyzed_image.height,
-        width=analyzed_image.width,
-        text_blocks=analyzed_image.text_blocks,
-    )
-    print(html_code)
-    with open("outputs/generated_html.html", "w", encoding="utf-8") as f:
-        f.write(html_code)

@@ -11,12 +11,13 @@ client = anthropic.Anthropic(
 from schema import TextBlockWithFontName
 
 
-def generate_html(width: int, height: int, text_blocks: list[TextBlockWithFontName]):
+def generate_html(width: int, height: int, text_blocks: list[TextBlockWithFontName], image_path: str):
     prompt = f"""
     You need to generate a HTML code for a white page with black text.
     The size of page is {width} x {height}.
     You will be given a list of text blocks.
-    Every text block has a text, a bounding box, font size, text alignment, line spacing and a font name.
+    Every text block has a text, a bounding box, font size, text color, text alignment, line spacing and a font name.
+    For background use image with path {image_path}.
     The text blocks are:
     {text_blocks}
     Return only the HTML code, no other text.

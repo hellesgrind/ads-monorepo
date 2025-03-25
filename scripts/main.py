@@ -7,7 +7,11 @@ from image_processing import (
     remove_text_from_image,
     create_image_mask,
 )
-from image_generation import regenerate_image
+from image_generation import (
+    regenerate_image_flux_dev_redux,
+    regenerate_image_flux_pro_redux,
+    generate_prompt,
+)
 from text_recognition import analyze_image
 
 
@@ -39,13 +43,18 @@ def clone_image(image_path: str, output_dir: str):
     # remove_text_from_image(image_path, text_mask_path, cleaned_image_path)
 
     regenerated_image_path = os.path.join(output_dir, "regenerated.png")
-    regenerate_image(cleaned_image_path, regenerated_image_path)
-
+    regenerate_image_flux_dev_redux(cleaned_image_path, regenerated_image_path)
+    # prompt = generate_prompt(cleaned_image_path)
+    # regenerate_image_flux_pro_redux(
+    #     image_path=cleaned_image_path,
+    #     output_path=regenerated_image_path,
+    #     prompt=prompt,
+    # )
     html_code = generate_html(
         height=analyzed_image.height,
         width=analyzed_image.width,
         text_blocks=analyzed_image.text_blocks,
-        image_path=regenerated_image_path,
+        image_path=os.path.basename(regenerated_image_path),
     )
     with open(os.path.join(output_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(html_code)
